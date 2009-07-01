@@ -1,0 +1,220 @@
+#!/usr/bin/env python
+"""
+ *   Copyright (c) International Business Machines Corp., 2001-2005
+ *
+ *   This program is free software;  you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or 
+ *   (at your option) any later version.
+ * 
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ *   the GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program;  if not, write to the Free Software 
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+"""
+import socket
+import getopt
+import sys
+import commands
+import struct
+import time
+import thread
+
+from threading import *
+
+class Options:
+    Port   = 8881
+    Host   = 'localhost'
+    Type   = 'client'
+    Cmnd   = 'sleep 0'
+    NumC   = 0
+    Output = '/dev/null'
+    
+    def PrintOptions (self, argv):
+        print """Usage : %s [OPTIONS...]
+
+        -p, --port=<INT>:                  Network port to use. (Default: %d)
+        -h, --host=<ADDRESS>               Network address to use. (Default: %s)
+        -t, --type=(client/server)         Connection type. (Default: %s)
+        -e, --exec=<CMD>                   Command to execute
+        -n, --num-clients=<NUM>            Number of clients
+        -o, --output=<FILE>                Leave out to FILE""" \
+        % (argv[0], self.Port, self.Host, self.Type)
+
+    def GetOptions (self, argv):
+        s_args = "t:p:h:e:n:o:"
+        l_args = ["type=","port=","host=", "exec=", "num-clients=", "output="]
+        
+        try:
+            opts, args = getopt.getopt(argv[1:], s_args, l_args)
+        except getopt.GetoptError, exc:
+            print "%s: %s" % (argv[0],exc.msg)
+            self.PrintOptions(argv)
+            sys.exit(1)
+
+        for opt, arg in opts:
+            if opt in ("-p", "--port"):
+                self.Port = int(arg)
+            if opt in ("-h", "--host"):
+                self.Host = arg
+            if opt in ("-t", "--type"):
+                self.Type = arg
+            if opt in ("-e", "--exec"):
+                self.Cmnd = arg
+            if opt in ("-n", "--num-clients"):
+                self.NumC = int(arg)
+            if opt in ("-o", "--output"):
+                self.Output = arg
+
+class Client:
+
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def StartClient(self, remote_host, remote_port, output_file):
+        retry = 40
+        # Connect to the remote host and port
+        Client_Socket = self.sock
+        while retry != 0:
+            try:
+                Client_Socket.connect((remote_host, remote_port))
+                break
+            except socket.error, err:
+                if err[1] == 'Connection refused':
+                    retry = retry - 1
+                    if retry == 0:
+                        print "Failed reatrys"
+                        print "Error: Unable to connect to Server (\'%s\')" % (err[1])
+                        sys.exit(1)
+                    else:
+                        time.sleep(0.5)
+                        continue
+                else:
+                    print "Error: Unable to connect to Server (\'%s\')" % (err[1])
+                    sys.exit(1)
+
+        # Send a request to the host
+        Client_Socket.send('CONNECT')
+
+        # Get the host's response, no more than, 1024 bytes
+        response_data = Client_Socket.recv(1024)
+    
+        print "Executing: %s" % response_data
+        (exitstatus, outtext) = commands.getstatusoutput(response_data)
+        print "Exit Status: %s" % exitstatus
+        print "Print Command Output:\n%s" % outtext
+
+        fOutput = open ( output_file, 'w' )
+        fOutput.write (outtext)
+        fOutput.close()
+        
+        Client_Socket.send(str(exitstatus))
+        response_data = Client_Socket.recv(1024)
+        
+        Client_Socket.send('DONE')
+        response_data = Client_Socket.recv(1024)
+    
+        # Terminate
+        Client_Socket.close()
+        
+class Server:
+        
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        
+    class ServerThread(Thread):
+
+        def __init__(self, NewSocket, Address, Cmnd, WaitLock):
+            Thread.__init__(self)
+            self.NewSocket = NewSocket
+            self.Address = Address
+            self.Cmnd = Cmnd
+            self.WaitLock = WaitLock
+            
+        def run(self):
+            ConnectionMSG = ('CONNECT', 'DONE')
+            print "Connected from", self.Address[0]
+            # loop serving the new client
+            while 1:
+                recivedData = self.NewSocket.recv(1024)
+                if not recivedData: break
+                if recivedData in ConnectionMSG:
+                    print "Recived \"%s\" from %s" % (recivedData, self.Address[0])
+                    if recivedData == "DONE":
+                        self.NewSocket.close()
+                        break
+                else:
+                    print "Exit Status: %d from %s" % (int(recivedData), self.Address[0])
+
+                while self.WaitLock.locked():
+                    time.sleep(.001)
+                
+                self.NewSocket.send(self.Cmnd)
+            #self.NewSocket.close()
+            print "Disconnected from", self.Address[0]
+        
+    def ServerMainLoop(self, port, cmnd):
+        Connected     = 0
+        ServerSocket  = self.sock
+        Threads       = []
+        ConnectionMSG = ('CONNECT', 'DONE')
+
+        Loop = 1
+        # Ensure that you can restart your server quickly when it terminates
+        ServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        print "Hostname: " + socket.gethostname() + "\n"
+
+        # Set the client socket's TCP "well-known" number
+        ServerSocket.bind(('', port))
+
+        # Set the number of clients waiting for connection that can be queued
+        ServerSocket.listen(20)
+        
+        self.WaitLock = Lock()
+        if self.NumC != 0:
+            self.WaitLock.acquire()
+        
+        # Loop waiting for connection (terminate with Ctrl-C)
+        try:
+            while Loop:
+                NewSocket, ClientAddress = ServerSocket.accept()
+                Connected = Connected + 1
+                if Connected == self.NumC:
+                    self.WaitLock.release()
+                    Loop = 0
+                ThreadObj=self.ServerThread(NewSocket, ClientAddress, cmnd, self.WaitLock)
+                Threads.append(ThreadObj)
+                ThreadObj.start()
+                for ThreadObj in Threads:
+                    print ThreadObj
+        finally:
+            time.sleep(1)
+            for ThreadObj in Threads:
+                ThreadObj.join()
+                Threads.remove(ThreadObj)
+
+            ServerSocket.close()
+            
+
+def main():
+
+    opts = Options()
+    opts.GetOptions(sys.argv)
+    
+    if opts.Type == 'server':
+        print "Starting Server"
+        a=Server()
+        a.NumC = opts.NumC
+        a.ServerMainLoop(opts.Port, opts.Cmnd)
+    if opts.Type == 'client':
+        print "Starting Client"
+        a=Client()
+        a.StartClient(opts.Host, opts.Port, opts.Output)
+    
+if __name__ == "__main__":
+    main()

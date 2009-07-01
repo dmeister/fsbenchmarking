@@ -1,0 +1,27 @@
+CONFIG_CLIENTS=dedupv1_vm:/share/fsbench
+SERVER_HOME=/home/dmeister/net-ffsb-0.1
+CLIENT_HOME=/home/dmeister/net-ffsb-0.1
+CLIENT_FFSB=/home/dmeister/ffsb-6.0-rc2/ffsb
+CONFIG_SERVER=dedupv1_vm
+CONFIG_SERVER_PROTOCOL=tcp
+CONFIG_VERSION=3
+CONFIG_RPC_SIZE=1024
+CONFIG_RSH=ssh
+CONFIG_RCP=scp
+CONFIG_RSH_USER=root
+
+SERVER_STATS="${SERVER_HOME}/bin/run-stats.sh"
+SERVER_REPORT="${SERVER_HOME}/bin/report"
+SERVER_NET_CONTROL="${SERVER_HOME}/bin/net_sync"
+
+CLIENT_NET_CONTROL="${CLIENT_HOME}/bin/net_sync"
+CLIENT_MNT_CMND="${CLIENT_HOME}/bin/mount_fs.sh"
+CLIENT_GEN_FFSB_PROF="${CLIENT_HOME}/bin/gen_ffsb_prof.sh"
+CLIENT_CALLOUT="\"${CLIENT_NET_CONTROL}*-t*client*-h*$CONFIG_SERVER*-p*60001\""
+CLIENT_STATS="${CLIENT_HOME}/bin/run-stats.sh"
+
+CONFIG_THREADS_MNT=8
+
+# 2 GB
+CONFIG_FILESET_SIZE=2147483648
+CONFIG_RUN_TIME=60

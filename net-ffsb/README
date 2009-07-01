@@ -1,0 +1,176 @@
+Introduction:
+=============
+The Net-FFSB benchmark is a simple set of scripts that use ffsb as the back end
+to do filesystem performance testing across the a network filesystem in a 
+multi-client environment.  It automates things like mounting the filesystems on
+all the clients, synchronizing all the client to start at the same time, 
+gathering of systems statistics on both the client and the server, collecting
+all the data, etc.  At the moment, only NFS is supported.
+
+Requirements:
+=============
+ffsb-5.2
+Python-2.3 (May work with older version)
+Bash-3.0 (May work with older version)
+
+Usage:
+======
+The workload assumes a couple of things:
+- Server is already setup to do file serving across the network.
+- Clients can mount server exported filesystems.
+- Server can access the clients without the use of passwords through rsh or ssh.
+- All of the requirements are installed on both the client and the server.
+- Net-FFSB benchmark directory is located in the same path for all the clients.
+- Client need to have write access to the server filesystem.
+- The mount script needs to run as root on the client.
+
+Once this is true, on the server we run:
+
+> cd /some_path/net-ffsb
+> run.sh config_file run_name
+
+This will cause net-ffsb to run at least one iteration for each profile located
+in the "profile" directory.  There are no profiles in this directory, the run 
+will immediately return.
+
+Results will be located in the "results" directory in a second directory named 
+after the run_name.  This directory will also contain a log of all the console
+output named <run_name>.log
+
+Sample config file and profiles are provided on the "resources" directory.
+
+Config File:
+============
+
+CONFIG_CLIENTS="<CLIENT>:<SERVER_MOUNT> ..."
+	This is use to specify which clients will mount which server of the 
+	directories.  Multiple clients are supported as well as multiple mount
+	on each client.  Server mounts can be also share between different 
+	clients.
+
+CONFIG_SERVER="<Server Hostname or IP>"
+	Server hostname or IP as seen by the client.  Only a single server can
+	be use at this time but if testing with multiple adapters on the server
+	is desired, using a hostname that points to diferent IP addresses on 
+	each client works.
+
+CONFIG_VERSION="# ..."
+	Specific to NFS at the moment.  Referrers to the NFS version to use.
+	Currently 2,3,4 are supported.  If multiple version numbers separated 
+	by space are used, the benchmark will run all the profiles for each 
+	version specified.
+
+CONFIG_RPC_SIZE="# ..."
+	Specific to NFS at the moment.  Referrers to the size of the NFS 
+	transactions for both reads and writes.  If multiple size separated by
+	spaces are use, the benchmark will run all the profile for each RPC 
+	size.
+
+CONFIG_SERVER_PROTOCOL="[TCP,UDP] ..."
+	Specific to NFS at the moment.  Referrers to the line protocol use by
+	NFS.  If multiple protocols separated by spaces are use, the benchmark 
+	will run all the profile for each protocol.
+
+CONFIG_RSH="[ssh,rsh]"
+	What to use as a remote shell.  Assumes that the server can access the
+	client without requiring a password.  Only tested with ssh but rsh 
+	should also work.
+
+CONFIG_RCP="[scp,rcp]"
+	Same as CONFIG_RSH but for remote copy.
+
+CONFIG_RSH_USER="<User Name>"
+	What user do log into the client as.
+
+CONFIG_NFSV#_OPTIONS="<Extra mount options>"
+	Specific to NFS.  If specify, a set of extra options will be appended 
+	to the mount command on the client.  No spaces are allow and options 
+	need to be separated by comas.
+
+CONFIG_THREADS_MNT=#
+	How many FFSB threads are going to be available for each mount on the 
+	client.  Default: Profile's default.
+
+CONFIG_FILESET_SIZE=#
+	If the profile generates a initial fileset and all of the file are of 
+	the same size, then this is the maximum file set size that will be 
+	created on the server.  This number is in bytes. Default: Profile's 
+	default.
+
+CONFIG_RUN_TIME=#
+	How long (in seconds) to run FFSB for.  The longer time we run, the 
+	more stable the	result.  Default: Profile's default.
+
+SERVER_HOME="<path to Net-FFSB benchmark directory>"
+	This is the path were the Net-FFSB directory is located on the server.
+
+SERVER_NET_CONTROL="${SERVER_HOME}/bin/net_sync"
+	This is the path to the script that synchronizes the clients.  Do not
+	change unless you really know what your doing.
+
+SERVER_STATS="${SERVER_HOME}/bin/run-stats.sh"
+	This is path to the script that gathers system statistics on the server.
+	Unless a custom script is desired, this should be left alone.
+
+SERVER_REPORT="${SERVER_HOME}/bin/report"
+	This is the path of the script use to generate a report in between 
+	iterations.  Right now report is very simple but unless someone has
+	something that's better, this should be left alone.
+
+CLIENT_HOME="<path to Net-FFSB benchmark directory>"
+	Same as SERVER_HOME but for the client.
+
+CLIENT_NET_CONTROL="${CLIENT_HOME}/bin/net_sync"
+	Same as SERVER_NET_CONTROL but for the client.
+
+CLIENT_MNT_CMND="${CLIENT_HOME}/bin/mount_fs.sh"
+	This is the path of the script that mounts the filesystems on each
+	client.  This need to be run as root so if CONFIG_RSH_USER is not
+	root, this should be setuid to root.  Do change unless you have 
+	something better that does the same thing.
+
+CLIENT_GEN_FFSB_PROF="${CLIENT_HOME}/bin/gen_ffsb_prof.sh"
+	This is the path of the script use to generate FFSB profiles for the
+	client.  This profile is automatically generated base on the profile
+	located on the "profile" directory on the server and other options in
+	the config file.  Don't change unless you have something better.
+
+CLIENT_CALLOUT="\"${CLIENT_NET_CONTROL} -t client -h $CONFIG_SERVER -p 60001\""
+	This is the callout command to run once FFSB finishes creating the file
+	set.  If you change this, things will break... So don't change.
+
+CLIENT_STATS="${CLIENT_HOME}/bin/run-stats.sh"
+	Same as SERVER_STATS but for the client.  Unless a custom script is 
+	desired, this should be left alone.
+
+CLIENT_FFSB="<path to FFSB executable>"
+	Path to the FFSB binary on the client.
+
+
+TODO:
+=====
+
+* Error checking.
+	- Right now the benchmark does not if a particular operation failed and 
+	it get stuck forever on some failures.  Need to handle errors in a 
+	better way.
+
+* Config file checking.
+	- The benchmark need to do some sanity check of the config file before
+	it tries to do anything.  Examples of things to check are:
+		+ Clients are alive.
+		+ Server exported mount exist.
+		+ Client user exist.
+		+ Check write permissions on the server exports.
+
+* Support for other Unixes.
+	- The benchmark is very Linux centric at the moment.  Support for other
+	Unixes like AIX and Solaris would be nice to start with.
+
+* Support for other Network file systems.
+	- Support for CIFS/Samba would be nice.
+
+* Better report tool.
+	- The current report tools is very simple.  A more detail report tool
+	would be nice.
+	

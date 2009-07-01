@@ -1,0 +1,38 @@
+directio=0
+time=10
+
+[filesystem0]
+        location	= /share/fsbench
+
+	num_dirs	= 1
+
+        min_filesize	= 65536
+    	max_filesize	= 65536
+
+	num_files	= 10
+	init_size	= 512m
+
+	agefs		= 1
+	[threadgroup]
+		num_threads	= 10
+		write_size	= 400
+		write_blocksize	= 1024
+		create_weight	= 10
+		append_weight	= 10
+		delete_weight	= 1
+	[end]
+	desired_util	= 0.01
+[end0]
+
+[threadgroup0]
+	num_threads=8
+
+	create_weight=1
+	delete_weight=1
+	metaop_weight=1
+        stat_weight=1
+        open_close_weight=1
+
+	write_size=4096
+	write_blocksize=4096
+[end0]

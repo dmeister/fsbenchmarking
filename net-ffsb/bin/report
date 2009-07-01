@@ -1,0 +1,213 @@
+#!/usr/bin/env python
+"""
+ *   Copyright (c) International Business Machines Corp., 2001-2005
+ *
+ *   This program is free software;  you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or 
+ *   (at your option) any later version.
+ * 
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ *   the GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program;  if not, write to the Free Software 
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+"""
+import getopt
+import sys
+import os.path
+import fnmatch
+
+class Options:
+    Name="Test"
+    Suffix="Test"
+    Path="Path"
+    Profile="prof"
+    
+    def PrintOptions (self, argv):
+        print """Usage : %s [OPTIONS...]
+
+        -n, --name=<NAME>:                 Name of the run
+        -s, --suffix=<NAME>                Name of the suffix
+        -r, --results_path=<PATH>          Results Path
+        -p, --profile_name                 profile Name""" \
+        % (argv[0])
+
+    def GetOptions (self, argv):
+        s_args = "n:s:r:p:"
+        l_args = ["name=","suffix=","results_path","profile"]
+        
+        try:
+            opts, args = getopt.getopt(argv[1:], s_args, l_args)
+        except getopt.GetoptError, exc:
+            print "%s: %s" % (argv[0],exc.msg)
+            self.PrintOptions(argv)
+            sys.exit(1)
+
+        for opt, arg in opts:
+            if opt in ("-n", "--name"):
+                self.Name = arg
+            if opt in ("-s", "--suffix"):
+                self.Suffix = arg
+            if opt in ("-r", "--results_path"):
+                self.Path = arg
+            if opt in ("-p", "--profile"):
+                self.Profile = arg
+
+def listFiles(root, patterns='*', recurse=1, return_folders=0):
+
+	pattern_list = patterns.split(';')
+	class Bunch:
+		def __init__(self, **kwds): self.__dict__.update(kwds)
+	arg = Bunch(recurse=recurse, pattern_list=pattern_list,
+		return_folders=return_folders, results=[])
+	
+	def visit(arg, dirname, files):
+		for name in files:
+			fullname = os.path.normpath(os.path.join(dirname,name))
+			if arg.return_folders or os.path.isfile(fullname):
+				for pattern in arg.pattern_list:
+					if fnmatch.fnmatch(name, pattern):
+						arg.results.append(fullname)
+						break
+		if not arg.recurse: files[:]=[]
+		
+	os.path.walk(root, visit, arg)
+	return arg.results
+
+def get_throughput(value):
+    if value.find("GB/sec") >= 0:
+        return float(value.replace("GB/sec","")) * 1000
+    elif value.find("MB/sec") >= 0:
+	return float(value.replace('MB/sec',''))
+    elif value.find("KB/sec") >= 0:
+	return float(value.replace('KB/sec','')) / 1000
+    else:
+	return None	
+
+def ffsbReport(ResultsPath,ClientPath,ProfileName):
+    clientData = {}
+    ffsbData = {}
+    Clients = []
+    serverOPS = {}
+    serverMBS = {}
+    serverThroughput = {}
+    lines = []
+
+    try:
+        for i in ClientPath:
+            if i.find(".svn") >= 0:
+                continue
+            results=0
+            ffsbFile = file(i + "/ffsb." + ProfileName)
+            clientHostname = i.replace(ResultsPath + '/','')
+            Clients.append(clientHostname)
+            for line in ffsbFile:
+                lines.append(line.strip())
+                column = line.split()
+
+                if len(column) > 0:
+#print column
+                    if (column[0] != 'Results:') and (results == 0):
+                        continue
+                    elif results == 0:
+                        results=1
+                    
+                    if column[0] == 'Benchmark':
+                        benchmarkTime=float(column[2])
+                        continue
+                    if column[0]== 'Throughput:':
+                        ThroughputData={}
+                        ThroughputData[column[1]+"Throughput"] = get_throughput(column[2])
+                        clientData[clientHostname]=ThroughputData
+                    elif column[0] in ('read', 'write', 'create', 'append', 'delete', 'metaop', 'createdir','stat','writeall',"writeall_fsync","open_close","write_fsync","create_fsync","append_fsync"):
+                        clientData.setdefault(clientHostname,{})
+                        ffsbData=clientData[clientHostname]
+		        if column[6] != 'NA':
+                    	    ffsbData[column[0]]= (float(column[2]), get_throughput(column[6]))
+		        else:
+                            ffsbData[column[0]]= (float(column[2]), None)
+                        clientData[clientHostname]=ffsbData
+
+        print "========================"
+        print "Results:"
+        print "========================"
+        #print clientData
+        for client in Clients:
+            hostdata= clientData[client]
+            if (hostdata.has_key("reads/sec")) or (hostdata.has_key("writes/sec")):
+                for key in hostdata:
+                    serverOPS.setdefault(key,0)
+                    serverThroughput.setdefault(key,0)
+                    serverOPS[key] = serverOPS[key] + hostdata[key][0]
+                    serverThroughput[key] = serverThroughput[key] + hostdata[key][1]
+
+                    print "Host: %s -> %.02fMB/sec" % (client, hostdata[key][1])
+                    print "\t %.02f %s (Avg Request Size: %.02fKB/s)\n" % (hostdata[key][0],
+                                                                       key,hostdata[key][1]*1024/hostdata[key][0])
+            else:
+                print "Host: %s" % (client)
+                total=0
+                for key in hostdata:
+                    serverOPS.setdefault(key,0)
+                    serverOPS[key] = serverOPS[key] + hostdata[key][0]
+                    ops=hostdata[key][0]
+                    print "\t %s : %.02f OPS/sec" % (key, ops)
+                    total=total + ops
+                print "\t ------------------"
+                print "\t Total  : %.02f OPS/sec" % (total)
+                print
+                total=0
+                for key in hostdata:
+                    serverMBS.setdefault(key,0)
+                    if hostdata[key][1]:
+                        serverMBS[key] = serverMBS[key] + hostdata[key][1]
+                        mbs=hostdata[key][1]
+                        print "\t %s : %.02f MB/sec" % (key, mbs)
+                        total=total + mbs
+                print "\t ------------------"
+                print "\t Total  : %.02f MB/sec" % (total)
+                print
+        
+        if (hostdata.has_key("reads/sec")) or (hostdata.has_key("writes/sec")):
+            for key in hostdata:
+                print "Total server throuput:"
+                print "%.02fMB/sec" %  serverThroughput[key]
+        else:
+            print
+            print "Total server OPS througput:"
+            total=0
+            for key in hostdata:
+                ops=serverOPS[key]
+                print "\t %s : %.02f OPS/sec" % (key, ops)
+                total=total + ops
+            print "\t ------------------"
+            print "\t Total  : %.02f OPS/sec" % (total)
+	    print
+            print "Total server MB/s througput:"
+            total=0
+            for key in hostdata:
+                ops=serverMBS[key]
+                print "\t %s : %.02f MB/sec" % (key, ops)
+                total=total + ops
+            print "\t ------------------"
+            print "\t Total  : %.02f MB/sec" % (total)
+    except:
+        print "\n".join(lines)
+        sys.exit(1)
+
+def main():
+    opts = Options()
+    opts.GetOptions(sys.argv)
+
+    resultsPath = opts.Path + "/" + opts.Name + "/" + opts.Suffix
+    clientResultsPath=listFiles(resultsPath,recurse=0,return_folders=1)
+    clientResultsPath.remove(resultsPath + "/stats")
+
+    ffsbReport(resultsPath,clientResultsPath, opts.Profile)
+
+if __name__ == "__main__":
+    main()

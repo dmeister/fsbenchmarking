@@ -1,0 +1,36 @@
+directio=0
+alignio=1
+time=600
+
+[filesystem0]
+        location	= /share/fsbench
+
+	num_dirs	= 1
+
+# 16 GB
+        min_filesize	= 17179869184
+    	max_filesize	= 17179869184
+
+	num_files	= 10
+
+	agefs		= 0
+	[threadgroup]
+		num_threads	= 10
+		write_size	= 400
+		write_blocksize	= 1024
+		create_weight	= 10
+		append_weight	= 10
+		delete_weight	= 1
+	[end]
+	desired_util	= 0.01
+[end0]
+
+[threadgroup0]
+	num_threads=1
+
+	read_random=1
+	read_weight=1
+
+	read_size=2621440
+	read_blocksize=262144
+[end0]
